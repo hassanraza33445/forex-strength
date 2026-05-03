@@ -6,18 +6,29 @@ export default async function handler(req, res) {
     const currencies = ['EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'NZD'];
     const symbols = currencies.join(',');
     
-    const currentRes = await fetch(`https://api.frankfurter.dev/latest?base=USD&symbols=${symbols}`, {
+    // Use 'latest' endpoint - returns most recent available data (handles weekends)
+    const currentRes = await fetch(`https://api.frankfurter.dev/v1/latest?base=USD&symbols=${symbols}`, {
       headers: { 'User-Agent': 'Mozilla/5.0' }
     });
-    if (!currentRes.ok) throw new Error('Current rates failed');
+    if (!currentRes.ok) throw new Error('Current rates failed: ' + currentRes.status);
     const currentData = await currentRes.json();
     
-    const yesterday = new Date(Date.now() - 86400000);
-    const dateStr = yesterday.toISOString().split('T')[0];
-    const histRes = await fetch(`https://api.frankfurter.dev/${dateStr}?base=USD&symbols=${symbols}`, {
+    // Get the actual date of "latest" data
+    const latestDate = new Date(currentData.date);
+    
+    // Get previous trading day (skip weekends)
+    let prevDate = new Date(latestDate);
+    prevDate.setDate(latestDate.getDate() - 1);
+    // If previous day is Sunday (0), go back 2 more days to Friday
+    while (prevDate.getDay() === 0 || prevDate.getDay() === 6) {
+      prevDate.setDate(prevDate.getDate() - 1);
+    }
+    const prevDateStr = prevDate.toISOString().split('T')[0];
+    
+    const histRes = await fetch(`https://api.frankfurter.dev/v1/${prevDateStr}?base=USD&symbols=${symbols}`, {
       headers: { 'User-Agent': 'Mozilla/5.0' }
     });
-    if (!histRes.ok) throw new Error('Historical rates failed');
+    if (!histRes.ok) throw new Error('Historical rates failed: ' + histRes.status);
     const histData = await histRes.json();
     
     const allCurrencies = ['USD', ...currencies];
@@ -51,7 +62,8 @@ export default async function handler(req, res) {
     res.setHeader('Cache-Control', 's-maxage=300');
     return res.status(200).json({
       timestamp: new Date().toISOString(),
-      base_period: '24h',
+      latest_date: currentData.date,
+      previous_date: prevDateStr,
       strengths: result
     });
   } catch (e) {
